@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/jpeg" href="elect-icon.jpeg">
+<title>Français du Plateau-Mont-Royal</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+#app { display: flex; height: 100vh; }
+
+/* Sidebar */
+#sidebar {
+  width: 280px;
+  min-width: 280px;
+  background: #fff;
+  border-right: 1px solid #ddd;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+#sidebar h1 {
+  font-size: 16px;
+  padding: 16px;
+  border-bottom: 1px solid #eee;
+  background: #f8f9fa;
+}
+#stats {
+  padding: 12px 16px;
+  font-size: 14px;
+  color: #555;
+  border-bottom: 1px solid #eee;
+}
+#stats strong { color: #222; }
+
+/* Visited progress */
+#visited-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+}
+#visited-section h2 { font-size: 13px; color: #888; text-transform: uppercase; margin-bottom: 8px; }
+#visited-bar-container {
+  background: #eee;
+  border-radius: 4px;
+  height: 18px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 6px;
+}
+#visited-bar {
+  background: #34A853;
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+#visited-bar-label {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; color: #333;
+}
+#visited-stats { font-size: 13px; color: #555; margin-bottom: 8px; }
+.visited-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.visited-actions button {
+  font-size: 11px; padding: 4px 8px; cursor: pointer;
+  background: #f0f0f0; border: 1px solid #ccc; border-radius: 4px;
+}
+.visited-actions button:hover { background: #e0e0e0; }
+#btn-reset-visited { color: #c00; border-color: #c00; }
+#btn-reset-visited:hover { background: #fee; }
+
+/* Visit filter */
+#visit-filter { margin-top: 8px; }
+#visit-filter label { font-size: 13px; cursor: pointer; }
+#visit-filter select {
+  font-size: 12px; padding: 2px 6px; border: 1px solid #ccc; border-radius: 4px;
+}
+
+/* Filters */
+#filters { padding: 12px 16px; }
+#filters h2 { font-size: 13px; color: #888; text-transform: uppercase; margin-bottom: 8px; }
+.filter-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+.filter-actions button {
+  font-size: 12px; padding: 4px 10px; cursor: pointer;
+  background: #f0f0f0; border: 1px solid #ccc; border-radius: 4px;
+}
+.filter-actions button:hover { background: #e0e0e0; }
+.filter-item {
+  display: flex; align-items: center; padding: 6px 0; gap: 8px;
+  font-size: 14px; cursor: pointer;
+}
+.filter-item input { cursor: pointer; }
+.color-dot {
+  width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex-shrink: 0;
+}
+.filter-label { flex: 1; }
+.filter-count { color: #999; font-size: 12px; }
+
+/* Search */
+#search-section { padding: 12px 16px; border-top: 1px solid #eee; }
+#search-section label { font-size: 12px; color: #666; display: block; margin-bottom: 4px; }
+#search-input { width: 100%; padding: 6px 8px; font-size: 13px; border: 1px solid #ccc; border-radius: 4px; }
+#search-results { font-size: 12px; color: #666; margin-top: 4px; }
+
+/* Map */
+#map { flex: 1; }
+
+/* Loading overlay */
+#loading {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(255,255,255,0.9); display: flex; align-items: center;
+  justify-content: center; z-index: 1000; font-size: 18px; color: #555;
+}
+#loading.hidden { display: none; }
+
+/* Error message */
+#error {
+  padding: 16px; background: #fee; color: #c00; display: none;
+  border-bottom: 1px solid #fcc; font-size: 13px;
+}
+
+/* Popup visited button */
+.popup-visit-btn {
+  display: inline-block; margin-top: 6px; padding: 4px 12px;
+  font-size: 12px; cursor: pointer; border-radius: 4px; border: none;
+}
+.popup-visit-btn.mark { background: #34A853; color: #fff; }
+.popup-visit-btn.mark:hover { background: #2d9249; }
+.popup-visit-btn.unmark { background: #f0f0f0; color: #666; border: 1px solid #ccc; }
+.popup-visit-btn.unmark:hover { background: #e0e0e0; }
+</style>
+</head>
+<body>
+
+<div id="loading">Chargement des donnees...</div>
+
+<div id="app">
+  <div id="sidebar">
+    <h1>Francais du Plateau-Mont-Royal</h1>
+    <div id="error"></div>
+
+    <div id="stats">
+      Affichage: <strong><span id="visible-count">0</span></strong> / <span id="total-count">0</span>
+    </div>
+
+    <div id="visited-section">
+      <h2>Progression des visites</h2>
+      <div id="visited-bar-container">
+        <div id="visited-bar" style="width:0%"></div>
+        <div id="visited-bar-label">0%</div>
+      </div>
+      <div id="visited-stats">
+        <span id="visited-count">0</span> visites / <span id="visited-total">0</span> adresses
+      </div>
+      <div id="visit-filter">
+        <label>Afficher:
+          <select id="visit-filter-select">
+            <option value="all">Tous</option>
+            <option value="not-visited">Non visites</option>
+            <option value="visited">Visites seulement</option>
+          </select>
+        </label>
+      </div>
+      <div class="visited-actions" style="margin-top:8px">
+        <button id="btn-export-visited">Exporter visites (CSV)</button>
+        <button id="btn-reset-visited">Reinitialiser</button>
+      </div>
+    </div>
+
+    <div id="filters">
+      <h2>Filtrer par code postal</h2>
+      <div class="filter-actions">
+        <button id="select-all">Tout selectionner</button>
+        <button id="clear-all">Tout effacer</button>
+      </div>
+      <div id="filter-list"></div>
+    </div>
+
+    <div id="search-section">
+      <label>Rechercher par nom</label>
+      <input type="text" id="search-input" placeholder="Tapez un nom...">
+      <div id="search-results"></div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+const ZIP3_COLORS = {
+  'H2J': '#4285F4', // blue
+  'H2T': '#34A853', // green
+  'H2H': '#EA4335', // red
+  'H2W': '#FBBC05', // orange
+};
+const DEFAULT_COLOR = '#9E9E9E';
+const VISITED_COLOR = '#888';
+
+let map = null;
+let allRecords = [];
+let allMarkers = [];  // { marker, record, id }
+let clusterGroup = null;
+let activeFilters = new Set();
+let zip3Counts = {};
+let searchTerm = '';
+let visitFilter = 'all';
+
+// --- Visited State (persisted in localStorage) ---
+let visitedSet = new Set(JSON.parse(localStorage.getItem('visited_addresses') || '[]'));
+
+function saveVisited() {
+  localStorage.setItem('visited_addresses', JSON.stringify([...visitedSet]));
+}
+
+function makeId(record) {
+  return `${record.adresse}|${record.code_postal}|${record.nom}|${record.prenom}`;
+}
+
+function isVisited(id) {
+  return visitedSet.has(id);
+}
+
+function toggleVisited(id) {
+  if (visitedSet.has(id)) {
+    visitedSet.delete(id);
+  } else {
+    visitedSet.add(id);
+  }
+  saveVisited();
+}
+
+// --- Init Map (Leaflet + OpenStreetMap) ---
+map = L.map('map').setView([45.525, -73.58], 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom: 19,
+}).addTo(map);
+
+clusterGroup = L.markerClusterGroup({ chunkedLoading: true, chunkInterval: 100, chunkDelay: 10 });
+map.addLayer(clusterGroup);
+
+loadData();
+
+async function loadData() {
+  try {
+    const resp = await fetch('geocoded.json');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    allRecords = data.records || [];
+    initApp();
+  } catch (e) {
+    showError(`Impossible de charger geocoded.json: ${e.message}. Avez-vous lance geocode.py ?`);
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('error');
+  el.textContent = msg;
+  el.style.display = 'block';
+  document.getElementById('loading').classList.add('hidden');
+}
+
+function createCircleIcon(color, approximate, visited) {
+  if (visited) {
+    return L.divIcon({
+      className: '',
+      html: `<div style="
+        width:14px; height:14px; border-radius:50%;
+        background:#fff; opacity:0.9;
+        border:3px solid #34A853; box-shadow:0 0 3px rgba(0,0,0,0.3);
+      "><div style="
+        width:6px; height:6px; border-radius:50%;
+        background:#34A853; margin:1px auto;
+      "></div></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+  }
+  return L.divIcon({
+    className: '',
+    html: `<div style="
+      width:12px; height:12px; border-radius:50%;
+      background:${color}; opacity:${approximate ? 0.4 : 0.85};
+      border:1.5px solid #fff; box-shadow:0 0 2px rgba(0,0,0,0.3);
+    "></div>`,
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+  });
+}
+
+function initApp() {
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('total-count').textContent = allRecords.length;
+
+  // Count per zip3
+  zip3Counts = {};
+  allRecords.forEach(r => {
+    zip3Counts[r.zip3] = (zip3Counts[r.zip3] || 0) + 1;
+  });
+
+  const sortedZip3 = Object.keys(zip3Counts).sort((a, b) => zip3Counts[b] - zip3Counts[a]);
+  activeFilters = new Set(sortedZip3);
+
+  // Build filter checkboxes
+  const filterList = document.getElementById('filter-list');
+  filterList.innerHTML = '';
+  sortedZip3.forEach(zip3 => {
+    const color = ZIP3_COLORS[zip3] || DEFAULT_COLOR;
+    const item = document.createElement('label');
+    item.className = 'filter-item';
+    item.innerHTML = `
+      <input type="checkbox" data-zip3="${zip3}" checked>
+      <span class="color-dot" style="background:${color}"></span>
+      <span class="filter-label">${zip3}</span>
+      <span class="filter-count">${zip3Counts[zip3]}</span>
+    `;
+    filterList.appendChild(item);
+  });
+
+  createMarkers();
+  updateVisibility();
+  updateVisitedStats();
+
+  // Event listeners
+  filterList.addEventListener('change', onFilterChange);
+  document.getElementById('select-all').addEventListener('click', () => toggleAll(true));
+  document.getElementById('clear-all').addEventListener('click', () => toggleAll(false));
+  document.getElementById('search-input').addEventListener('input', onSearch);
+  document.getElementById('visit-filter-select').addEventListener('change', onVisitFilterChange);
+  document.getElementById('btn-reset-visited').addEventListener('click', onResetVisited);
+  document.getElementById('btn-export-visited').addEventListener('click', onExportVisited);
+}
+
+function createMarkers() {
+  allMarkers = allRecords.map(record => {
+    const id = makeId(record);
+    const color = ZIP3_COLORS[record.zip3] || DEFAULT_COLOR;
+    const visited = isVisited(id);
+    const marker = L.marker([record.lat, record.lng], {
+      icon: createCircleIcon(color, record.approximate, visited),
+    });
+
+    marker.on('click', () => {
+      const v = isVisited(id);
+      const popup = L.popup().setContent(buildPopupContent(record, id, v));
+      marker.bindPopup(popup).openPopup();
+    });
+
+    return { marker, record, id };
+  });
+}
+
+function buildPopupContent(record, id, visited) {
+  const div = document.createElement('div');
+  div.style.cssText = 'font-size:13px;line-height:1.5';
+  div.innerHTML = `
+    <strong>${record.prenom} ${record.nom}</strong><br>
+    ${record.adresse}<br>
+    ${record.code_postal}
+    ${record.approximate ? '<br><em style="color:#999">Position approximative</em>' : ''}
+  `;
+  const btn = document.createElement('button');
+  btn.className = visited ? 'popup-visit-btn unmark' : 'popup-visit-btn mark';
+  btn.textContent = visited ? 'Marquer non visite' : 'Marquer visite';
+  btn.addEventListener('click', () => {
+    toggleVisited(id);
+    const nowVisited = isVisited(id);
+    // Update marker icon
+    const entry = allMarkers.find(m => m.id === id);
+    if (entry) {
+      const color = ZIP3_COLORS[record.zip3] || DEFAULT_COLOR;
+      entry.marker.setIcon(createCircleIcon(color, record.approximate, nowVisited));
+    }
+    // Update popup button
+    btn.className = nowVisited ? 'popup-visit-btn unmark' : 'popup-visit-btn mark';
+    btn.textContent = nowVisited ? 'Marquer non visite' : 'Marquer visite';
+    updateVisitedStats();
+    // Re-filter if visit filter is active
+    if (visitFilter !== 'all') {
+      updateVisibility();
+    }
+  });
+  div.appendChild(btn);
+  return div;
+}
+
+function updateVisitedStats() {
+  const total = allRecords.length;
+  // Count unique addresses visited
+  const uniqueAddresses = new Map();
+  allRecords.forEach(r => {
+    const addrKey = `${r.adresse}|${r.code_postal}`;
+    const id = makeId(r);
+    if (!uniqueAddresses.has(addrKey)) {
+      uniqueAddresses.set(addrKey, false);
+    }
+    if (isVisited(id)) {
+      uniqueAddresses.set(addrKey, true);
+    }
+  });
+  const visitedAddresses = [...uniqueAddresses.values()].filter(v => v).length;
+  const totalAddresses = uniqueAddresses.size;
+  const visitedPeople = [...visitedSet].filter(id =>
+    allMarkers.some(m => m.id === id)
+  ).length;
+
+  const pct = totalAddresses > 0 ? Math.round(visitedAddresses / totalAddresses * 100) : 0;
+
+  document.getElementById('visited-count').textContent = visitedAddresses;
+  document.getElementById('visited-total').textContent = totalAddresses;
+  document.getElementById('visited-bar').style.width = pct + '%';
+  document.getElementById('visited-bar-label').textContent = pct + '%';
+}
+
+function updateVisibility() {
+  clusterGroup.clearLayers();
+
+  const lowerSearch = searchTerm.toLowerCase();
+  let visibleCount = 0;
+
+  allMarkers.forEach(({ marker, record, id }) => {
+    if (!activeFilters.has(record.zip3)) return;
+    if (lowerSearch) {
+      const fullName = `${record.nom} ${record.prenom}`.toLowerCase();
+      if (!fullName.includes(lowerSearch)) return;
+    }
+    // Visit filter
+    if (visitFilter === 'visited' && !isVisited(id)) return;
+    if (visitFilter === 'not-visited' && isVisited(id)) return;
+
+    clusterGroup.addLayer(marker);
+    visibleCount++;
+  });
+
+  document.getElementById('visible-count').textContent = visibleCount;
+}
+
+// --- Filter Events ---
+function onFilterChange() {
+  activeFilters.clear();
+  document.querySelectorAll('#filter-list input[type=checkbox]').forEach(cb => {
+    if (cb.checked) activeFilters.add(cb.dataset.zip3);
+  });
+  updateVisibility();
+}
+
+function toggleAll(checked) {
+  document.querySelectorAll('#filter-list input[type=checkbox]').forEach(cb => {
+    cb.checked = checked;
+  });
+  if (checked) {
+    Object.keys(zip3Counts).forEach(z => activeFilters.add(z));
+  } else {
+    activeFilters.clear();
+  }
+  updateVisibility();
+}
+
+// --- Visit Filter ---
+function onVisitFilterChange(e) {
+  visitFilter = e.target.value;
+  updateVisibility();
+}
+
+// --- Reset Visited ---
+function onResetVisited() {
+  if (!confirm('Reinitialiser toutes les visites ? Cette action est irreversible.')) return;
+  visitedSet.clear();
+  saveVisited();
+  // Update all marker icons
+  allMarkers.forEach(({ marker, record, id }) => {
+    const color = ZIP3_COLORS[record.zip3] || DEFAULT_COLOR;
+    marker.setIcon(createCircleIcon(color, record.approximate, false));
+  });
+  updateVisitedStats();
+  updateVisibility();
+}
+
+// --- Export Visited ---
+function onExportVisited() {
+  const visited = allMarkers.filter(({ id }) => isVisited(id));
+  if (visited.length === 0) { alert('Aucune visite a exporter.'); return; }
+
+  const header = 'Nom,Prenom,Adresse,Code Postal,Zip3,Date visite\n';
+  const now = new Date().toISOString().split('T')[0];
+  const rows = visited.map(({ record }) =>
+    `"${record.nom}","${record.prenom}","${record.adresse}","${record.code_postal}","${record.zip3}","${now}"`
+  ).join('\n');
+
+  const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `visites_${now}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// --- Search ---
+function onSearch(e) {
+  searchTerm = e.target.value.trim();
+  updateVisibility();
+  const resultsEl = document.getElementById('search-results');
+  if (searchTerm) {
+    resultsEl.textContent = `${document.getElementById('visible-count').textContent} resultats`;
+  } else {
+    resultsEl.textContent = '';
+  }
+}
+</script>
+
+</body>
+</html>
