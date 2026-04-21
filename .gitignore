@@ -1,5 +1,6 @@
 geocode_cache.json
 geocode_fixes.json
+visited.json
 plateau_mont_royal_2026.csv
 .env
 *.pyc

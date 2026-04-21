@@ -180,6 +180,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       Affichage: <strong><span id="visible-count">0</span></strong> / <span id="total-count">0</span>
     </div>
 
+    <div id="visitor-section" style="padding:12px 16px;border-bottom:1px solid #eee">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Votre nom</label>
+      <input type="text" id="visitor-name" placeholder="Entrez votre nom..."
+        style="width:100%;padding:6px 8px;font-size:13px;border:1px solid #ccc;border-radius:4px">
+    </div>
+
     <div id="visited-section">
       <h2>Progression des visites</h2>
       <div id="visited-bar-container">
@@ -244,29 +250,63 @@ let zip3Counts = {};
 let searchTerm = '';
 let visitFilter = 'all';
 
-// --- Visited State (persisted in localStorage) ---
-let visitedSet = new Set(JSON.parse(localStorage.getItem('visited_addresses') || '[]'));
-
-function saveVisited() {
-  localStorage.setItem('visited_addresses', JSON.stringify([...visitedSet]));
-}
+// --- Visited State (persisted on server) ---
+let visitedMap = {};  // id -> { user, timestamp }
 
 function makeId(record) {
   return `${record.adresse}|${record.code_postal}|${record.nom}|${record.prenom}`;
 }
 
 function isVisited(id) {
-  return visitedSet.has(id);
+  return id in visitedMap;
 }
 
-function toggleVisited(id) {
-  if (visitedSet.has(id)) {
-    visitedSet.delete(id);
-  } else {
-    visitedSet.add(id);
-  }
-  saveVisited();
+function getVisitedInfo(id) {
+  return visitedMap[id] || null;
 }
+
+async function loadVisited() {
+  try {
+    const resp = await fetch('/api/visited');
+    if (resp.ok) visitedMap = await resp.json();
+  } catch (e) {
+    console.warn('Could not load visited state:', e);
+  }
+}
+
+async function markVisited(id) {
+  const user = localStorage.getItem('visitor_name') || 'anonymous';
+  visitedMap[id] = { user, timestamp: new Date().toISOString() };
+  try {
+    await fetch('/api/visited', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, user, timestamp: visitedMap[id].timestamp }),
+    });
+  } catch (e) {
+    console.warn('Could not save visited:', e);
+  }
+}
+
+async function unmarkVisited(id) {
+  delete visitedMap[id];
+  try {
+    await fetch('/api/visited', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+  } catch (e) {
+    console.warn('Could not delete visited:', e);
+  }
+}
+
+// --- Visitor name (stored in localStorage per device) ---
+const visitorInput = document.getElementById('visitor-name');
+visitorInput.value = localStorage.getItem('visitor_name') || '';
+visitorInput.addEventListener('change', () => {
+  localStorage.setItem('visitor_name', visitorInput.value.trim());
+});
 
 // --- Init Map (Leaflet + OpenStreetMap) ---
 map = L.map('map').setView([45.525, -73.58], 14);
@@ -282,9 +322,12 @@ loadData();
 
 async function loadData() {
   try {
-    const resp = await fetch('geocoded.json');
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
+    const [geoResp] = await Promise.all([
+      fetch('geocoded.json'),
+      loadVisited(),
+    ]);
+    if (!geoResp.ok) throw new Error(`HTTP ${geoResp.status}`);
+    const data = await geoResp.json();
     allRecords = data.records || [];
     initApp();
   } catch (e) {
@@ -392,17 +435,27 @@ function createMarkers() {
 function buildPopupContent(record, id, visited) {
   const div = document.createElement('div');
   div.style.cssText = 'font-size:13px;line-height:1.5';
+
+  const info = getVisitedInfo(id);
+  const visitedByText = (visited && info) ?
+    `<br><em style="color:#34A853">Visite par ${info.user}${info.timestamp ? ' le ' + info.timestamp.split('T')[0] : ''}</em>` : '';
+
   div.innerHTML = `
     <strong>${record.prenom} ${record.nom}</strong><br>
     ${record.adresse}<br>
     ${record.code_postal}
     ${record.approximate ? '<br><em style="color:#999">Position approximative</em>' : ''}
+    ${visitedByText}
   `;
   const btn = document.createElement('button');
   btn.className = visited ? 'popup-visit-btn unmark' : 'popup-visit-btn mark';
   btn.textContent = visited ? 'Marquer non visite' : 'Marquer visite';
-  btn.addEventListener('click', () => {
-    toggleVisited(id);
+  btn.addEventListener('click', async () => {
+    if (isVisited(id)) {
+      await unmarkVisited(id);
+    } else {
+      await markVisited(id);
+    }
     const nowVisited = isVisited(id);
     // Update marker icon
     const entry = allMarkers.find(m => m.id === id);
@@ -410,11 +463,21 @@ function buildPopupContent(record, id, visited) {
       const color = ZIP3_COLORS[record.zip3] || DEFAULT_COLOR;
       entry.marker.setIcon(createCircleIcon(color, record.approximate, nowVisited));
     }
-    // Update popup button
+    // Refresh popup content
+    const newInfo = getVisitedInfo(id);
+    const newVisitedText = (nowVisited && newInfo) ?
+      `<br><em style="color:#34A853">Visite par ${newInfo.user}${newInfo.timestamp ? ' le ' + newInfo.timestamp.split('T')[0] : ''}</em>` : '';
+    div.innerHTML = `
+      <strong>${record.prenom} ${record.nom}</strong><br>
+      ${record.adresse}<br>
+      ${record.code_postal}
+      ${record.approximate ? '<br><em style="color:#999">Position approximative</em>' : ''}
+      ${newVisitedText}
+    `;
     btn.className = nowVisited ? 'popup-visit-btn unmark' : 'popup-visit-btn mark';
     btn.textContent = nowVisited ? 'Marquer non visite' : 'Marquer visite';
+    div.appendChild(btn);
     updateVisitedStats();
-    // Re-filter if visit filter is active
     if (visitFilter !== 'all') {
       updateVisibility();
     }
@@ -424,8 +487,6 @@ function buildPopupContent(record, id, visited) {
 }
 
 function updateVisitedStats() {
-  const total = allRecords.length;
-  // Count unique addresses visited
   const uniqueAddresses = new Map();
   allRecords.forEach(r => {
     const addrKey = `${r.adresse}|${r.code_postal}`;
@@ -439,9 +500,6 @@ function updateVisitedStats() {
   });
   const visitedAddresses = [...uniqueAddresses.values()].filter(v => v).length;
   const totalAddresses = uniqueAddresses.size;
-  const visitedPeople = [...visitedSet].filter(id =>
-    allMarkers.some(m => m.id === id)
-  ).length;
 
   const pct = totalAddresses > 0 ? Math.round(visitedAddresses / totalAddresses * 100) : 0;
 
@@ -502,12 +560,20 @@ function onVisitFilterChange(e) {
 }
 
 // --- Reset Visited ---
-function onResetVisited() {
+async function onResetVisited() {
   if (!confirm('Reinitialiser toutes les visites ? Cette action est irreversible.')) return;
-  visitedSet.clear();
-  saveVisited();
+  // Delete all visited on server
+  const ids = Object.keys(visitedMap);
+  for (const id of ids) {
+    await fetch('/api/visited', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+  }
+  visitedMap = {};
   // Update all marker icons
-  allMarkers.forEach(({ marker, record, id }) => {
+  allMarkers.forEach(({ marker, record }) => {
     const color = ZIP3_COLORS[record.zip3] || DEFAULT_COLOR;
     marker.setIcon(createCircleIcon(color, record.approximate, false));
   });
@@ -520,12 +586,15 @@ function onExportVisited() {
   const visited = allMarkers.filter(({ id }) => isVisited(id));
   if (visited.length === 0) { alert('Aucune visite a exporter.'); return; }
 
-  const header = 'Nom,Prenom,Adresse,Code Postal,Zip3,Date visite\n';
-  const now = new Date().toISOString().split('T')[0];
-  const rows = visited.map(({ record }) =>
-    `"${record.nom}","${record.prenom}","${record.adresse}","${record.code_postal}","${record.zip3}","${now}"`
-  ).join('\n');
+  const header = 'Nom,Prenom,Adresse,Code Postal,Zip3,Visite par,Date visite\n';
+  const rows = visited.map(({ record, id }) => {
+    const info = getVisitedInfo(id);
+    const user = info ? info.user : '';
+    const date = info && info.timestamp ? info.timestamp.split('T')[0] : '';
+    return `"${record.nom}","${record.prenom}","${record.adresse}","${record.code_postal}","${record.zip3}","${user}","${date}"`;
+  }).join('\n');
 
+  const now = new Date().toISOString().split('T')[0];
   const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
