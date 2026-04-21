@@ -15,8 +15,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
 /* Sidebar */
 #sidebar {
-  width: 280px;
-  min-width: 280px;
   background: #fff;
   border-right: 1px solid #ddd;
   display: flex;
@@ -133,9 +131,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .popup-visit-btn.unmark { background: #f0f0f0; color: #666; border: 1px solid #ccc; }
 .popup-visit-btn.unmark:hover { background: #e0e0e0; }
 
-/* Toggle button for mobile */
+/* Toggle button */
 #sidebar-toggle {
-  display: none;
+  display: flex;
   position: fixed;
   top: 10px; left: 10px;
   z-index: 10000;
@@ -151,26 +149,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   line-height: 1;
   color: #333;
 }
-
-/* Mobile */
-@media (max-width: 640px) {
-  #sidebar-toggle { display: flex !important; }
-  #app { flex-direction: column; }
-  #sidebar {
-    position: fixed;
-    top: 0; left: 0; bottom: 0;
-    z-index: 9999;
-    width: 280px;
-    transform: translateX(0);
-    transition: transform 0.25s ease;
-    box-shadow: 2px 0 8px rgba(0,0,0,0.2);
-  }
-  #sidebar.collapsed {
-    transform: translateX(-100%);
-    box-shadow: none;
-  }
-  #map { width: 100%; height: 100vh; }
+#sidebar {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 9999;
+  width: 280px;
+  transform: translateX(0);
+  transition: transform 0.25s ease;
+  box-shadow: 2px 0 8px rgba(0,0,0,0.2);
 }
+#sidebar.collapsed {
+  transform: translateX(-100%);
+  box-shadow: none;
+}
+#map { width: 100%; height: 100vh; }
 </style>
 </head>
 <body>
