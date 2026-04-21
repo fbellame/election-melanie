@@ -1,14 +1,29 @@
 #!/usr/bin/env python3
-"""WSGI app for serving the election map + visited addresses API via gunicorn."""
+"""WSGI app for serving the election map + visited addresses API via gunicorn.
+
+Visited addresses are stored in Upstash Redis (persistent, free tier).
+Set UPSTASH_REDIS_URL and UPSTASH_REDIS_TOKEN environment variables.
+Falls back to local JSON file if Redis is not configured.
+"""
 
 import json
 import mimetypes
 import os
 import threading
+import urllib.error
+import urllib.parse
+import urllib.request
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.environ.get('DATA_DIR', BASE_DIR)
-VISITED_FILE = os.path.join(DATA_DIR, 'visited.json')
+
+# Upstash Redis config
+UPSTASH_URL = os.environ.get('UPSTASH_REDIS_URL', '')
+UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_TOKEN', '')
+REDIS_KEY = 'visited_addresses'
+
+# Fallback local file (when Redis not configured)
+VISITED_FILE = os.path.join(BASE_DIR, 'visited.json')
+_lock = threading.Lock()
 
 MIME_OVERRIDES = {
     '.json': 'application/json',
@@ -21,21 +36,76 @@ MIME_OVERRIDES = {
     '.ico': 'image/x-icon',
 }
 
-# Thread lock for visited.json writes
-_lock = threading.Lock()
+
+# --- Upstash Redis helpers (REST API, no driver needed) ---
+
+def _redis_request(method, path, body=None):
+    """Make a request to Upstash Redis REST API."""
+    url = f"{UPSTASH_URL}{path}"
+    data = json.dumps(body).encode('utf-8') if body else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header('Authorization', f'Bearer {UPSTASH_TOKEN}')
+    req.add_header('Content-Type', 'application/json')
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, OSError) as e:
+        print(f"Redis error: {e}")
+        return None
 
 
-def _load_visited():
+def _redis_get_all():
+    """Get all visited addresses from Redis."""
+    result = _redis_request('GET', f'/get/{REDIS_KEY}')
+    if result and result.get('result'):
+        try:
+            return json.loads(result['result'])
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _redis_save_all(data):
+    """Save all visited addresses to Redis."""
+    payload = json.dumps(data, ensure_ascii=False)
+    # Use SET command via REST API
+    result = _redis_request('POST', '', body=['SET', REDIS_KEY, payload])
+    return result is not None
+
+
+def _use_redis():
+    return bool(UPSTASH_URL and UPSTASH_TOKEN)
+
+
+# --- Local file fallback ---
+
+def _file_load():
     if os.path.exists(VISITED_FILE):
         with open(VISITED_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {}
 
 
-def _save_visited(data):
+def _file_save(data):
     with open(VISITED_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False)
 
+
+# --- Storage abstraction ---
+
+def load_visited():
+    if _use_redis():
+        return _redis_get_all()
+    return _file_load()
+
+
+def save_visited(data):
+    if _use_redis():
+        return _redis_save_all(data)
+    _file_save(data)
+
+
+# --- WSGI helpers ---
 
 def _read_body(environ):
     try:
@@ -56,6 +126,8 @@ def _json_response(start_response, data, status='200 OK'):
     return [body]
 
 
+# --- WSGI app ---
+
 def app(environ, start_response):
     path = environ.get('PATH_INFO', '/')
     method = environ.get('REQUEST_METHOD', 'GET')
@@ -63,7 +135,7 @@ def app(environ, start_response):
     # --- API: Visited addresses ---
     if path == '/api/visited':
         if method == 'GET':
-            visited = _load_visited()
+            visited = load_visited()
             return _json_response(start_response, visited)
 
         elif method == 'POST':
@@ -73,12 +145,12 @@ def app(environ, start_response):
             if not addr_id:
                 return _json_response(start_response, {'error': 'missing id'}, '400 Bad Request')
             with _lock:
-                visited = _load_visited()
+                visited = load_visited()
                 visited[addr_id] = {
                     'user': user,
                     'timestamp': body.get('timestamp', ''),
                 }
-                _save_visited(visited)
+                save_visited(visited)
             return _json_response(start_response, {'ok': True})
 
         elif method == 'DELETE':
@@ -87,9 +159,9 @@ def app(environ, start_response):
             if not addr_id:
                 return _json_response(start_response, {'error': 'missing id'}, '400 Bad Request')
             with _lock:
-                visited = _load_visited()
+                visited = load_visited()
                 visited.pop(addr_id, None)
-                _save_visited(visited)
+                save_visited(visited)
             return _json_response(start_response, {'ok': True})
 
     # --- API: Bulk import visited ---
@@ -97,9 +169,9 @@ def app(environ, start_response):
         body = _read_body(environ)
         entries = body.get('entries', {})
         with _lock:
-            visited = _load_visited()
+            visited = load_visited()
             visited.update(entries)
-            _save_visited(visited)
+            save_visited(visited)
         return _json_response(start_response, {'ok': True, 'total': len(visited)})
 
     # --- Static files ---
