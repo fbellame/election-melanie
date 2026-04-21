@@ -132,14 +132,53 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .popup-visit-btn.mark:hover { background: #2d9249; }
 .popup-visit-btn.unmark { background: #f0f0f0; color: #666; border: 1px solid #ccc; }
 .popup-visit-btn.unmark:hover { background: #e0e0e0; }
+
+/* Toggle button for mobile */
+#sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 10px; left: 10px;
+  z-index: 900;
+  width: 40px; height: 40px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #ccc;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  font-size: 20px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+  #sidebar-toggle { display: flex; }
+  #sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 800;
+    width: 280px;
+    transform: translateX(0);
+    transition: transform 0.25s ease;
+    box-shadow: 2px 0 8px rgba(0,0,0,0.2);
+  }
+  #sidebar.collapsed {
+    transform: translateX(-100%);
+    box-shadow: none;
+  }
+  #map { width: 100%; }
+}
 </style>
 </head>
 <body>
 
 <div id="loading">Chargement des donnees...</div>
 
+<button id="sidebar-toggle" aria-label="Menu">&#9776;</button>
+
 <div id="app">
-  <div id="sidebar">
+  <div id="sidebar" class="collapsed">
     <h1>Francais du Plateau-Mont-Royal</h1>
     <div id="error"></div>
 
@@ -513,6 +552,25 @@ function onSearch(e) {
     resultsEl.textContent = '';
   }
 }
+
+// --- Sidebar toggle (mobile) ---
+const sidebarEl = document.getElementById('sidebar');
+const toggleBtn = document.getElementById('sidebar-toggle');
+
+toggleBtn.addEventListener('click', () => {
+  sidebarEl.classList.toggle('collapsed');
+  toggleBtn.textContent = sidebarEl.classList.contains('collapsed') ? '\u2630' : '\u2715';
+  // Leaflet needs a resize nudge after layout change
+  setTimeout(() => map.invalidateSize(), 300);
+});
+
+// Close sidebar when clicking on the map (mobile)
+document.getElementById('map').addEventListener('click', () => {
+  if (window.innerWidth <= 640 && !sidebarEl.classList.contains('collapsed')) {
+    sidebarEl.classList.add('collapsed');
+    toggleBtn.textContent = '\u2630';
+  }
+});
 </script>
 
 </body>
