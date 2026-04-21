@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""WSGI app for serving the election map + visited addresses API via gunicorn.
+"""WSGI app for serving the election map + visited API via gunicorn.
 
-Visited addresses are stored in Upstash Redis (persistent, free tier).
+Visited entries are stored per person record in Upstash Redis
+(persistent, free tier).
 Set UPSTASH_REDIS_URL and UPSTASH_REDIS_TOKEN environment variables.
 Falls back to local JSON file if Redis is not configured.
 """
@@ -19,6 +20,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Upstash Redis config
 UPSTASH_URL = os.environ.get('UPSTASH_REDIS_URL', '')
 UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_TOKEN', '')
+# Legacy key name kept for compatibility with existing deployed data.
 REDIS_KEY = 'visited_addresses'
 
 # Fallback local file (when Redis not configured)
@@ -55,7 +57,7 @@ def _redis_request(method, path, body=None):
 
 
 def _redis_get_all():
-    """Get all visited addresses from Redis."""
+    """Get all visited entries from Redis."""
     result = _redis_request('GET', f'/get/{REDIS_KEY}')
     if result and result.get('result'):
         try:
@@ -66,7 +68,7 @@ def _redis_get_all():
 
 
 def _redis_save_all(data):
-    """Save all visited addresses to Redis."""
+    """Save all visited entries to Redis."""
     payload = json.dumps(data, ensure_ascii=False)
     # Use SET command via REST API
     result = _redis_request('POST', '', body=['SET', REDIS_KEY, payload])
@@ -132,7 +134,7 @@ def app(environ, start_response):
     path = environ.get('PATH_INFO', '/')
     method = environ.get('REQUEST_METHOD', 'GET')
 
-    # --- API: Visited addresses ---
+    # --- API: Visited entries ---
     if path == '/api/visited':
         if method == 'GET':
             visited = load_visited()

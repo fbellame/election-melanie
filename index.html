@@ -193,7 +193,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <div id="visited-bar-label">0%</div>
       </div>
       <div id="visited-stats">
-        <span id="visited-count">0</span> visites / <span id="visited-total">0</span> adresses
+        <span id="visited-count">0</span> visites / <span id="visited-total">0</span> personnes
       </div>
       <div id="my-visits-stats" style="font-size:13px;color:#555;margin-top:6px">
         Vous : <strong><span id="my-visits-count">0</span></strong> visites
@@ -259,6 +259,7 @@ let visitFilter = 'all';
 let visitedMap = {};  // id -> { user, timestamp }
 
 function makeId(record) {
+  // Visits are tracked per person, not per household address.
   return `${record.adresse}|${record.code_postal}|${record.nom}|${record.prenom}`;
 }
 
@@ -495,31 +496,26 @@ function buildPopupContent(record, id, visited) {
 }
 
 function updateVisitedStats() {
-  const uniqueAddresses = new Map();
   const myName = (localStorage.getItem('visitor_name') || '').toLowerCase().trim();
+  let totalVisited = 0;
   let myCount = 0;
+  const total = allRecords.length;
 
   allRecords.forEach(r => {
-    const addrKey = `${r.adresse}|${r.code_postal}`;
     const id = makeId(r);
-    if (!uniqueAddresses.has(addrKey)) {
-      uniqueAddresses.set(addrKey, false);
-    }
     if (isVisited(id)) {
-      uniqueAddresses.set(addrKey, true);
+      totalVisited++;
       const info = getVisitedInfo(id);
       if (myName && info && info.user.toLowerCase().trim() === myName) {
         myCount++;
       }
     }
   });
-  const visitedAddresses = [...uniqueAddresses.values()].filter(v => v).length;
-  const totalAddresses = uniqueAddresses.size;
 
-  const pct = totalAddresses > 0 ? Math.round(visitedAddresses / totalAddresses * 100) : 0;
+  const pct = total > 0 ? Math.round(totalVisited / total * 100) : 0;
 
-  document.getElementById('visited-count').textContent = visitedAddresses;
-  document.getElementById('visited-total').textContent = totalAddresses;
+  document.getElementById('visited-count').textContent = totalVisited;
+  document.getElementById('visited-total').textContent = total;
   document.getElementById('visited-bar').style.width = pct + '%';
   document.getElementById('visited-bar-label').textContent = pct + '%';
   document.getElementById('my-visits-count').textContent = myCount;
