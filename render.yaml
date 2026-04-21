@@ -2,8 +2,8 @@ services:
   - type: web
     name: election-melanie
     runtime: python
-    buildCommand: echo "No build needed"
-    startCommand: python server.py
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app
     envVars:
       - key: PORT
         value: 10000
