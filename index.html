@@ -195,17 +195,22 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       <div id="visited-stats">
         <span id="visited-count">0</span> visites / <span id="visited-total">0</span> adresses
       </div>
+      <div id="my-visits-stats" style="font-size:13px;color:#555;margin-top:6px">
+        Vous : <strong><span id="my-visits-count">0</span></strong> visites
+      </div>
       <div id="visit-filter">
         <label>Afficher:
           <select id="visit-filter-select">
             <option value="all">Tous</option>
             <option value="not-visited">Non visites</option>
             <option value="visited">Visites seulement</option>
+            <option value="my-visits">Mes visites</option>
           </select>
         </label>
       </div>
       <div class="visited-actions" style="margin-top:8px">
-        <button id="btn-export-visited">Exporter visites (CSV)</button>
+        <button id="btn-export-mine">Exporter mes visites</button>
+        <button id="btn-export-visited">Exporter tout (CSV)</button>
         <button id="btn-reset-visited">Reinitialiser</button>
       </div>
     </div>
@@ -306,6 +311,8 @@ const visitorInput = document.getElementById('visitor-name');
 visitorInput.value = localStorage.getItem('visitor_name') || '';
 visitorInput.addEventListener('change', () => {
   localStorage.setItem('visitor_name', visitorInput.value.trim());
+  updateVisitedStats();
+  if (visitFilter === 'my-visits') updateVisibility();
 });
 
 // --- Init Map (Leaflet + OpenStreetMap) ---
@@ -411,6 +418,7 @@ function initApp() {
   document.getElementById('visit-filter-select').addEventListener('change', onVisitFilterChange);
   document.getElementById('btn-reset-visited').addEventListener('click', onResetVisited);
   document.getElementById('btn-export-visited').addEventListener('click', onExportVisited);
+  document.getElementById('btn-export-mine').addEventListener('click', onExportMine);
 }
 
 function createMarkers() {
@@ -488,6 +496,9 @@ function buildPopupContent(record, id, visited) {
 
 function updateVisitedStats() {
   const uniqueAddresses = new Map();
+  const myName = (localStorage.getItem('visitor_name') || '').toLowerCase().trim();
+  let myCount = 0;
+
   allRecords.forEach(r => {
     const addrKey = `${r.adresse}|${r.code_postal}`;
     const id = makeId(r);
@@ -496,6 +507,10 @@ function updateVisitedStats() {
     }
     if (isVisited(id)) {
       uniqueAddresses.set(addrKey, true);
+      const info = getVisitedInfo(id);
+      if (myName && info && info.user.toLowerCase().trim() === myName) {
+        myCount++;
+      }
     }
   });
   const visitedAddresses = [...uniqueAddresses.values()].filter(v => v).length;
@@ -507,6 +522,7 @@ function updateVisitedStats() {
   document.getElementById('visited-total').textContent = totalAddresses;
   document.getElementById('visited-bar').style.width = pct + '%';
   document.getElementById('visited-bar-label').textContent = pct + '%';
+  document.getElementById('my-visits-count').textContent = myCount;
 }
 
 function updateVisibility() {
@@ -524,6 +540,11 @@ function updateVisibility() {
     // Visit filter
     if (visitFilter === 'visited' && !isVisited(id)) return;
     if (visitFilter === 'not-visited' && isVisited(id)) return;
+    if (visitFilter === 'my-visits') {
+      const info = getVisitedInfo(id);
+      const myName = (localStorage.getItem('visitor_name') || '').toLowerCase().trim();
+      if (!info || !myName || info.user.toLowerCase().trim() !== myName) return;
+    }
 
     clusterGroup.addLayer(marker);
     visibleCount++;
@@ -600,6 +621,34 @@ function onExportVisited() {
   const a = document.createElement('a');
   a.href = url;
   a.download = `visites_${now}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// --- Export My Visits ---
+function onExportMine() {
+  const myName = (localStorage.getItem('visitor_name') || '').toLowerCase().trim();
+  if (!myName) { alert('Entrez votre nom dans le champ "Votre nom" pour exporter vos visites.'); return; }
+
+  const mine = allMarkers.filter(({ id }) => {
+    const info = getVisitedInfo(id);
+    return info && info.user.toLowerCase().trim() === myName;
+  });
+  if (mine.length === 0) { alert('Aucune visite a votre nom.'); return; }
+
+  const header = 'Nom,Prenom,Adresse,Code Postal,Zip3,Date visite\n';
+  const rows = mine.map(({ record, id }) => {
+    const info = getVisitedInfo(id);
+    const date = info && info.timestamp ? info.timestamp.split('T')[0] : '';
+    return `"${record.nom}","${record.prenom}","${record.adresse}","${record.code_postal}","${record.zip3}","${date}"`;
+  }).join('\n');
+
+  const now = new Date().toISOString().split('T')[0];
+  const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `mes_visites_${myName.replace(/\s+/g, '_')}_${now}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
